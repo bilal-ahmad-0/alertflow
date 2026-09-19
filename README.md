@@ -1,6 +1,6 @@
-# 🚨 AlertOps - Enterprise Incident Management Platform
+# 🚨 AlertFlow - Enterprise Incident Management Platform
 
-AlertOps is a modern, real-time incident management, alerting, and on-call orchestration platform designed for high-availability engineering teams. Built with React, Vite, Express, WebSockets, and SQLite, AlertOps enables teams to detect, triage, escalate, and resolve critical infrastructure incidents faster.
+AlertFlow is a modern, real-time incident management, alerting, and on-call orchestration platform designed for high-availability engineering teams. Built with React, Vite, Express, WebSockets, and SQLite, AlertFlow enables teams to detect, triage, escalate, and resolve critical infrastructure incidents faster.
 
 ---
 
@@ -36,8 +36,8 @@ Ensure you have the following installed on your machine:
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/alertops.git
-   cd alertops
+   git clone https://github.com/bilal-ahmad-0/alertflow.git
+   cd alertflow
    ```
 
 2. **Install Dependencies**
