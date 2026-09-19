@@ -9,22 +9,36 @@ import { dispatchNotifications } from './notifications/dispatcher.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wsClients = new Set();
+let server = null;
+let wss = null;
+
+if (!process.env.VERCEL) {
+  server = http.createServer(app);
+  wss = new WebSocketServer({ server, path: '/ws' });
+  wss.on('connection', (ws) => {
+    wsClients.add(ws);
+    ws.on('close', () => wsClients.delete(ws));
+  });
+}
 
 app.use(cors());
 app.use(express.json());
 
+// Ensure database is ready before handling requests (required for serverless)
+app.use(async (req, res, next) => {
+  try {
+    await waitForDb();
+    next();
+  } catch (err) {
+    res.status(500).json({ error: 'Database initialization failed' });
+  }
+});
+
 const PORT = 3001;
 const ORG_ID = 'org-default';
 
-// WebSocket connections
-const wsClients = new Set();
 
-wss.on('connection', (ws) => {
-  wsClients.add(ws);
-  ws.on('close', () => wsClients.delete(ws));
-});
 
 export function broadcast(data) {
   const msg = JSON.stringify(data);
@@ -953,11 +967,17 @@ app.get('/api/notification-policies', (req, res) => {
 async function start() {
   await waitForDb();
   console.log('[Server] Database initialized');
-  server.listen(PORT, () => {
-    console.log(`\n  🚨 AlertOps Server running on http://localhost:${PORT}`);
-    console.log(`  📡 WebSocket endpoint: ws://localhost:${PORT}/ws`);
-    console.log(`  🔗 Webhook endpoint: http://localhost:${PORT}/api/webhook/ingest\n`);
-  });
+  if (server) {
+    server.listen(PORT, () => {
+      console.log(`\n  🚨 AlertOps Server running on http://localhost:${PORT}`);
+      console.log(`  📡 WebSocket endpoint: ws://localhost:${PORT}/ws`);
+      console.log(`  🔗 Webhook endpoint: http://localhost:${PORT}/api/webhook/ingest\n`);
+    });
+  }
 }
 
-start().catch(err => { console.error('Failed to start:', err); process.exit(1); });
+if (!process.env.VERCEL) {
+  start().catch(err => { console.error('Failed to start:', err); process.exit(1); });
+}
+
+export default app;

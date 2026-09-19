@@ -1,11 +1,11 @@
-import initSqlJs from 'sql.js';
+import initSqlJs from 'sql.js/dist/sql-asm.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, 'alertops.db');
+const DB_PATH = process.env.VERCEL ? path.join('/tmp', 'alertops.db') : path.join(__dirname, 'alertops.db');
 
 let rawDb = null;
 let dbWrapper = null;
@@ -27,7 +27,10 @@ function createWrapper(db) {
   };
 
   // Auto-save periodically
-  setInterval(save, 5000);
+  if (!process.env.VERCEL) {
+    const timer = setInterval(save, 5000);
+    if (timer.unref) timer.unref();
+  }
 
   return {
     prepare(sql) {
