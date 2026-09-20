@@ -12,7 +12,9 @@ export async function sendSlackNotification(config, template, incident, notifica
     return { success: false, error: 'Simulated Slack delivery failure' };
   }
 
-  let authHeader = config.auth_header || (config.api_key ? `Bearer ${config.api_key}` : null);
+  let authHeader = config.auth_header 
+    || (config.api_key ? `Bearer ${config.api_key}` : null)
+    || (process.env.ALERTOPS_SLACK_CONNECTOR_API_KEY ? `Bearer ${process.env.ALERTOPS_SLACK_CONNECTOR_API_KEY}` : null);
   let extraHeaders = {};
 
   // Check if user pasted a full curl command into webhook_url
