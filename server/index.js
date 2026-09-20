@@ -652,7 +652,7 @@ app.post('/api/destinations/:id/test', async (req, res) => {
     let result;
     if (dest.type === 'slack') {
       const { sendSlackNotification } = await import('./notifications/slack.js');
-      result = await sendSlackNotification(config, template, testIncident, 'alert');
+      result = await sendSlackNotification(config, template, testIncident, 'alert', undefined, { testMode: true });
     } else if (dest.type === 'email') {
       const { sendEmailNotification } = await import('./notifications/email.js');
       result = await sendEmailNotification(config, template, testIncident, 'alert');

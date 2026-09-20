@@ -1,9 +1,10 @@
 /**
  * Slack notification sender using Incoming Webhooks.
  */
-export async function sendSlackNotification(config, template, incident, eventOrType = 'alert', maybeType) {
+export async function sendSlackNotification(config, template, incident, eventOrType = 'alert', maybeType, options = {}) {
   const notificationType = typeof eventOrType === 'string' ? eventOrType : (maybeType || 'alert');
   const event = typeof eventOrType === 'object' ? eventOrType : null;
+  const testMode = options.testMode === true;
 
   const defaultWorkflowId = process.env.FASTN_NOTIFICATION_WORKFLOW_ID || 'wf_9a9e07bc911b';
   let webhookUrl = process.env.FASTN_NOTIFICATION_WEBHOOK_URL
@@ -74,10 +75,13 @@ export async function sendSlackNotification(config, template, incident, eventOrT
   if (authHeader) {
     const cleanAuth = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
     headers['Authorization'] = cleanAuth;
-    if (cleanAuth.includes('test') || (typeof webhookUrl === 'string' && webhookUrl.includes('fastn'))) {
-      headers['X-fastn-Test-Mode'] = 'true';
-      headers['x-fastn-env'] = 'test';
-    }
+  }
+
+  // Only set test-mode headers when explicitly requested (e.g., from the test connection button)
+  if (testMode) {
+    headers['X-fastn-Test-Mode'] = 'true';
+    headers['x-fastn-env'] = 'test';
+    console.log('[Slack] Test mode enabled — sending with X-fastn-Test-Mode headers');
   }
 
   const isRecovery = notificationType === 'recovery';
@@ -149,20 +153,24 @@ export async function sendSlackNotification(config, template, incident, eventOrT
     };
 
     try {
+      console.log(`[Slack] RECOVERY dispatch: url=${webhookUrl.substring(0, 60)}... testMode=${testMode} incident=${incidentNumber} payload_keys=${Object.keys(body.input || {}).join(',')}`);
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
       });
 
+      const responseText = await response.text();
+      console.log(`[Slack] RECOVERY response: status=${response.status} body=${responseText.substring(0, 200)}`);
+
       if (response.ok) {
         console.log(`[RECOVERY] notification dispatched for incident=${incidentId}`);
         return { success: true };
       } else {
-        const text = await response.text();
-        return { success: false, error: `Slack/Fastn API error: ${response.status} - ${text}` };
+        return { success: false, error: `Slack/Fastn API error: ${response.status} - ${responseText}` };
       }
     } catch (err) {
+      console.error(`[Slack] RECOVERY fetch error: ${err.message}`);
       return { success: false, error: `Slack delivery error: ${err.message}` };
     }
   }
@@ -221,19 +229,23 @@ export async function sendSlackNotification(config, template, incident, eventOrT
   };
 
   try {
+    console.log(`[Slack] ALERT dispatch: url=${webhookUrl.substring(0, 60)}... testMode=${testMode} type=${notificationType} incident=${incidentNumber} payload_keys=${Object.keys(body.input || {}).join(',')}`);
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
     });
 
+    const responseText = await response.text();
+    console.log(`[Slack] ALERT response: status=${response.status} body=${responseText.substring(0, 200)}`);
+
     if (response.ok) {
       return { success: true };
     } else {
-      const text = await response.text();
-      return { success: false, error: `Slack/Fastn API error: ${response.status} - ${text}` };
+      return { success: false, error: `Slack/Fastn API error: ${response.status} - ${responseText}` };
     }
   } catch (err) {
+    console.error(`[Slack] ALERT fetch error: ${err.message}`);
     return { success: false, error: `Slack delivery error: ${err.message}` };
   }
 }
