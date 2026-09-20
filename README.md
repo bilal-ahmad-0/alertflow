@@ -1,6 +1,10 @@
 # 🚨 AlertFlow - Enterprise Incident Management Platform
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-alertflow--two.vercel.app-blue?style=for-the-badge&logo=vercel)](https://alertflow-two.vercel.app/)
+
 AlertFlow is a modern, real-time incident management, alerting, and on-call orchestration platform designed for high-availability engineering teams. Built with React, Vite, Express, WebSockets, and SQLite, AlertFlow enables teams to detect, triage, escalate, and resolve critical infrastructure incidents faster.
+
+> **🚀 Live Preview:** Check out the live application at [https://alertflow-two.vercel.app/](https://alertflow-two.vercel.app/)
 
 ---
 
@@ -14,11 +18,12 @@ AlertFlow is a modern, real-time incident management, alerting, and on-call orch
 
 ---
 
-## 🛠️ Technology Stack
+## 🛠️ Technology Stack & Architecture
 
-- **Frontend**: React 18, Vite, React Router v6, Recharts, Lucide Icons, Modern CSS Design System
-- **Backend**: Node.js, Express, WebSockets (`ws`), SQLite (`better-sqlite3`), Nodemailer
-- **Development Tooling**: Concurrently for running full-stack client & server concurrently
+- **Frontend**: React 18, Vite, React Router v6, Recharts, Lucide Icons, Modern CSS Design System (Hosted on Vercel)
+- **Backend**: Node.js, Express, WebSockets (`ws`), SQLite (`better-sqlite3`), Nodemailer (Hosted on Railway)
+- **Integrations**: Fastn (Slack Connectors, Workflows)
+- **Development Tooling**: Concurrently for running full-stack client & server simultaneously
 
 ---
 
