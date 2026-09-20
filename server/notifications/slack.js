@@ -76,10 +76,11 @@ export async function sendSlackNotification(config, template, incident, eventOrT
   }
 
   // Only set test-mode headers when explicitly requested (e.g., from the test connection button)
-  // UPDATE: We must ALWAYS send test headers because the Fastn workflows are NOT deployed to the 'live' environment.
-  headers['X-fastn-Test-Mode'] = 'true';
-  headers['x-fastn-env'] = 'test';
-  console.log('[Slack] Test mode enabled — sending with X-fastn-Test-Mode headers (REQUIRED FOR UNPUBLISHED WORKFLOWS)');
+  if (testMode) {
+    headers['X-fastn-Test-Mode'] = 'true';
+    headers['x-fastn-env'] = 'test';
+    console.log('[Slack] Test mode enabled — sending with X-fastn-Test-Mode headers');
+  }
 
   const isRecovery = notificationType === 'recovery';
   const service = event?.service || incident?.service_name || template?.service || 'System';
