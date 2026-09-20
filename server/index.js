@@ -277,7 +277,12 @@ app.post('/api/incidents/:id/resolve', async (req, res) => {
   const { user_id = 'user-ahmed', root_cause, impact, resolution, followup } = req.body;
   const now = new Date().toISOString();
 
-  const incident = db.prepare('SELECT * FROM incidents WHERE id = ?').get(req.params.id);
+  const incident = db.prepare(`
+    SELECT i.*, s.name as service_name 
+    FROM incidents i 
+    LEFT JOIN services s ON i.service_id = s.id 
+    WHERE i.id = ?
+  `).get(req.params.id);
   if (!incident) return res.status(404).json({ error: 'Incident not found' });
 
   db.prepare('UPDATE incidents SET status = ?, resolved_at = ?, updated_at = ?, root_cause = ?, impact = ?, resolution = ?, followup = ? WHERE id = ?')
@@ -300,9 +305,32 @@ app.post('/api/incidents/:id/resolve', async (req, res) => {
   addAuditLog(db, 'incident_resolved', 'incident', req.params.id, `INC-${incident.incident_number}`, `Resolved by ${userName}`, user_id, userName);
   addAppNotification(db, 'incident_resolved', 'Incident Resolved', `INC-${incident.incident_number} resolved by ${userName}`, 'success', `/incidents/${req.params.id}`);
 
-  // Send recovery notifications
-  const updatedIncident = db.prepare('SELECT * FROM incidents WHERE id = ?').get(req.params.id);
-  await dispatchNotifications(db, updatedIncident, null, { notify: true }, 'recovery');
+  // Send recovery notifications with explicit recovery metadata
+  const updatedIncident = db.prepare(`
+    SELECT i.*, s.name as service_name 
+    FROM incidents i 
+    LEFT JOIN services s ON i.service_id = s.id 
+    WHERE i.id = ?
+  `).get(req.params.id);
+
+  const recoveryEvent = {
+    event_id: `rec_${incident.id}_${Date.now()}`,
+    event_type: 'recovery',
+    status: 'resolved',
+    severity: 'resolved',
+    value: 'resolved',
+    service_id: incident.service_id,
+    service: incident.service_name || incident.service || null,
+    environment: incident.environment || 'production',
+    incident_id: incident.id,
+    incident_number: incident.incident_number,
+    description: `Incident INC-${incident.incident_number} resolved by ${userName}`,
+    source: 'AlertOps Incident Engine',
+  };
+
+  console.log(`[RECOVERY] incident=${incident.id} event_type=recovery status=resolved`);
+  await dispatchNotifications(db, updatedIncident, recoveryEvent, { notify: true }, 'recovery');
+  console.log(`[RECOVERY] notification dispatched for incident=${incident.id}`);
 
   broadcast({ type: 'incident_updated', incident: updatedIncident });
   broadcast({ type: 'activity', activity: { type: 'incident_resolved', message: `${userName} resolved INC-${incident.incident_number}`, timestamp: now } });

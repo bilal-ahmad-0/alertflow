@@ -71,19 +71,98 @@ export async function sendSlackNotification(config, template, incident, eventOrT
     }
   }
 
-  const service = event?.service || template?.service || incident?.service_name || 'System';
+  const isRecovery = notificationType === 'recovery';
+  const service = event?.service || incident?.service_name || template?.service || 'System';
   const environment = event?.environment || incident?.environment || template?.environment || 'production';
-  const severity = (incident?.severity || event?.severity || template?.severity || 'critical');
   const priority = incident?.priority || event?.priority || template?.priority || 'P1';
+  const incidentNumber = incident?.incident_number ? (String(incident.incident_number).startsWith('INC-') ? incident.incident_number : `INC-${incident.incident_number}`) : 'INC-NEW';
+  const incidentId = incident?.id || event?.incident_id || `inc_${Date.now()}`;
+  const eventId = event?.event_id || (isRecovery ? `rec_${incidentId}` : incidentId);
+  const alertId = event?.alert_id || null;
+  const title = incident?.title || template?.subject || `${service} — Incident`;
+
+  let severity, value, threshold, source, event_type, description, status;
+
+  if (isRecovery) {
+    event_type = 'recovery';
+    value = 'resolved';
+    severity = 'resolved';
+    status = 'resolved';
+    threshold = event?.threshold !== undefined ? String(event.threshold) : 'normal';
+    source = event?.source || 'AlertOps Incident Engine';
+    const metric = event?.metric || event?.metric_name || 'System Health';
+    description = incident?.title ? `Resolved: ${incident.title}` : (template?.description || 'Incident resolved');
+
+    console.log(`[RECOVERY] incident=${incidentId} event_type=recovery status=resolved`);
+
+    // Payload structure supporting both standard Slack webhooks (blocks, text) and Fastn workflows (input)
+    const body = {
+      blocks,
+      text: template?.subject || `✅ [RESOLVED] ${incidentNumber}: ${title}`,
+      input: {
+        value,
+        metric,
+        source,
+        service,
+        event_id: eventId,
+        alert_id: alertId,
+        incident_id: incidentId,
+        incident_number: incidentNumber,
+        title,
+        severity,
+        threshold,
+        event_type,
+        description,
+        environment,
+        priority,
+        status,
+      },
+      value,
+      metric,
+      source,
+      service,
+      event_id: eventId,
+      alert_id: alertId,
+      incident_id: incidentId,
+      incident_number: incidentNumber,
+      title,
+      severity,
+      threshold,
+      event_type,
+      description,
+      environment,
+      priority,
+      status,
+    };
+
+    try {
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+
+      if (response.ok) {
+        console.log(`[RECOVERY] notification dispatched for incident=${incidentId}`);
+        return { success: true };
+      } else {
+        const text = await response.text();
+        return { success: false, error: `Slack/Fastn API error: ${response.status} - ${text}` };
+      }
+    } catch (err) {
+      return { success: false, error: `Slack delivery error: ${err.message}` };
+    }
+  }
+
+  // Normal alert / escalation payload
+  severity = (incident?.severity || event?.severity || template?.severity || 'critical');
+  status = incident?.status || 'triggered';
+  value = event?.value !== undefined ? String(event.value) : 'triggered';
+  threshold = event?.threshold !== undefined ? String(event.threshold) : 'threshold_exceeded';
+  source = event?.source || 'Infrastructure Monitor';
   const metric = event?.metric || event?.metric_name || 'System Alert';
-  const value = event?.value !== undefined ? String(event.value) : 'triggered';
-  const threshold = event?.threshold !== undefined ? String(event.threshold) : 'threshold_exceeded';
-  const source = event?.source || 'Infrastructure Monitor';
-  const event_type = event?.event_type || 'cpu_threshold';
-  const description = event?.description || template?.description || incident?.title || 'Incident notification';
-  const incidentNumber = incident?.incident_number ? `INC-${incident.incident_number}` : 'INC-NEW';
-  const incidentId = incident?.id || `inc_${Date.now()}`;
-  const eventId = event?.event_id || incidentId;
+  event_type = event?.event_type || 'cpu_threshold';
+  description = event?.description || template?.description || incident?.title || 'Incident notification';
 
   // Payload structure supporting both standard Slack webhooks (blocks, text) and Fastn workflows (input)
   const body = {
@@ -95,28 +174,34 @@ export async function sendSlackNotification(config, template, incident, eventOrT
       source,
       service,
       event_id: eventId,
+      alert_id: alertId,
       incident_id: incidentId,
       incident_number: incidentNumber,
+      title,
       severity,
       threshold,
       event_type,
       description,
       environment,
       priority,
-      status: incident?.status || 'triggered',
+      status,
     },
     value,
     metric,
     source,
     service,
     event_id: eventId,
+    alert_id: alertId,
     incident_id: incidentId,
     incident_number: incidentNumber,
+    title,
     severity,
     threshold,
     event_type,
     description,
     environment,
+    priority,
+    status,
   };
 
   try {

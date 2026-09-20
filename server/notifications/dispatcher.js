@@ -19,7 +19,7 @@ export async function dispatchNotifications(db, incident, event, actions, notifi
     return [{ type: 'none', status: 'skipped', error: 'No destinations configured' }];
   }
 
-  // Get notification policy for this severity
+  // Get notification policy for this severity (for recovery, use incident severity)
   const severity = incident?.severity || event?.severity || 'info';
   const policy = db.prepare(`
     SELECT * FROM notification_policies
@@ -37,12 +37,13 @@ export async function dispatchNotifications(db, incident, event, actions, notifi
 
     const deliveryId = uuidv4();
     const template = getNotificationTemplate(notificationType, incident, event);
+    const eventId = event?.event_id || (notificationType === 'recovery' && incident?.id ? `rec_${incident.id}` : null);
 
     // Record delivery attempt
     db.prepare(`
       INSERT INTO deliveries (id, alert_id, incident_id, destination_id, destination_type, status, attempts, sent_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(deliveryId, event?.event_id || null, incident?.id || null, dest.id, dest.type, 'sending', 1, new Date().toISOString());
+    `).run(deliveryId, eventId, incident?.id || null, dest.id, dest.type, 'sending', 1, new Date().toISOString());
 
     try {
       let result;

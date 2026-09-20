@@ -36,6 +36,20 @@ export async function processEvent(rawEvent) {
     const isDuplicate = checkDuplicate(db, event);
     if (isDuplicate.duplicate) {
       log('Duplicate event detected');
+      const isRecovery = event.event_type === 'recovery' || event.status === 'resolved';
+      if (isRecovery) {
+        console.log(`[RECOVERY] duplicate recovery event ignored event_id=${event.event_id}`);
+        return {
+          success: true,
+          duplicate: true,
+          recovery: true,
+          idempotent: true,
+          alert_id: isDuplicate.existingAlertId,
+          incident_id: isDuplicate.existingIncidentId,
+          pipeline: pipelineLog,
+        };
+      }
+
       // Still store the alert but mark as duplicate
       const alertId = storeAlert(db, event, 'duplicate', isDuplicate.existingIncidentId);
       log(`Alert ${alertId} stored as duplicate`);
@@ -56,7 +70,13 @@ export async function processEvent(rawEvent) {
     }
     log('Duplicate check passed');
 
-    // Step 4: Check suppression/maintenance
+    // Step 4: Hard Recovery Guard (before suppression, rules, correlation, and incident creation)
+    if (event.event_type === 'recovery' || event.status === 'resolved' || event.event_type === 'resolved' || event.event_type?.includes('recover')) {
+      log('Recovery event detected');
+      return await handleRecoveryEvent(db, event, pipelineLog, log);
+    }
+
+    // Step 5: Check suppression/maintenance
     const suppression = checkSuppression(db, event);
     if (suppression.suppressed) {
       log(`Event suppressed: ${suppression.reason}`);
@@ -78,7 +98,7 @@ export async function processEvent(rawEvent) {
     }
     log('Suppression check passed');
 
-    // Step 5: Evaluate alert rules
+    // Step 6: Evaluate alert rules
     const ruleResult = evaluateRules(db, event);
     log(ruleResult.matched ? `Rule matched: ${ruleResult.rule.name}` : 'No specific rule matched, using defaults');
 
@@ -87,12 +107,6 @@ export async function processEvent(rawEvent) {
     // Apply rule-determined severity and priority
     if (actions.severity) event.severity = actions.severity;
     const priority = actions.priority || 'P3';
-
-    // Step 6: Check if this is a recovery event
-    if (event.event_type === 'recovery' || event.event_type === 'resolved' || event.event_type?.includes('recover')) {
-      log('Recovery event detected');
-      return await handleRecoveryEvent(db, event, pipelineLog, log);
-    }
 
     // Step 7: Correlate - find existing related incident
     let incident = null;
@@ -204,10 +218,36 @@ export async function processEvent(rawEvent) {
 }
 
 async function handleRecoveryEvent(db, event, pipelineLog, log) {
-  // Find matching open incident
+  // Find matching open or already resolved incident
   let matchingIncident = null;
+  let alreadyResolved = null;
 
-  if (event.service_id) {
+  if (event.incident_id) {
+    const inc = db.prepare('SELECT * FROM incidents WHERE id = ?').get(event.incident_id);
+    if (inc) {
+      if (inc.status !== 'resolved') {
+        matchingIncident = inc;
+      } else {
+        alreadyResolved = inc;
+      }
+    }
+  }
+
+  if (!matchingIncident && !alreadyResolved && event.incident_number) {
+    const num = parseInt(String(event.incident_number).replace(/^INC-/, ''), 10);
+    if (!isNaN(num)) {
+      const inc = db.prepare('SELECT * FROM incidents WHERE incident_number = ?').get(num);
+      if (inc) {
+        if (inc.status !== 'resolved') {
+          matchingIncident = inc;
+        } else {
+          alreadyResolved = inc;
+        }
+      }
+    }
+  }
+
+  if (!matchingIncident && !alreadyResolved && event.service_id) {
     matchingIncident = db.prepare(`
       SELECT * FROM incidents 
       WHERE service_id = ? AND environment = ? AND status NOT IN ('resolved') 
@@ -215,8 +255,8 @@ async function handleRecoveryEvent(db, event, pipelineLog, log) {
     `).get(event.service_id, event.environment);
   }
 
-  if (!matchingIncident && event.service) {
-    const svc = db.prepare('SELECT id FROM services WHERE name = ?').get(event.service);
+  if (!matchingIncident && !alreadyResolved && event.service) {
+    const svc = db.prepare('SELECT id FROM services WHERE name = ? COLLATE NOCASE').get(event.service);
     if (svc) {
       matchingIncident = db.prepare(`
         SELECT * FROM incidents 
@@ -226,10 +266,9 @@ async function handleRecoveryEvent(db, event, pipelineLog, log) {
     }
   }
 
-  const alertId = storeAlert(db, event, 'processed', matchingIncident?.id);
-
   if (matchingIncident) {
     log(`Found matching open incident INC-${matchingIncident.incident_number}`);
+    const alertId = storeAlert(db, event, 'processed', matchingIncident.id);
 
     // Resolve the incident
     const now = new Date().toISOString();
@@ -276,6 +315,8 @@ async function handleRecoveryEvent(db, event, pipelineLog, log) {
     broadcast({ type: 'incident_updated', incident: updatedIncident });
     broadcast({ type: 'activity', activity: { type: 'incident_resolved', message: `INC-${matchingIncident.incident_number} auto-resolved by recovery event`, timestamp: now } });
 
+    console.log(`[RECOVERY] incident=${matchingIncident.id} event_type=recovery status=resolved (auto-resolved)`);
+
     return {
       success: true,
       recovery: true,
@@ -285,8 +326,36 @@ async function handleRecoveryEvent(db, event, pipelineLog, log) {
       pipeline: pipelineLog,
     };
   } else {
-    log('No matching open incident found for recovery event');
-    return { success: true, recovery: true, alert_id: alertId, no_match: true, pipeline: pipelineLog };
+    // Incident is already resolved or no open incident exists. Idempotent no-op.
+    if (!alreadyResolved && event.service_id) {
+      alreadyResolved = db.prepare(`
+        SELECT * FROM incidents 
+        WHERE service_id = ? AND environment = ? AND status = 'resolved' 
+        ORDER BY resolved_at DESC LIMIT 1
+      `).get(event.service_id, event.environment);
+    }
+
+    if (alreadyResolved) {
+      console.log(`[RECOVERY] inbound recovery ignored for incident=${alreadyResolved.id} (already resolved)`);
+      cancelEscalation(alreadyResolved.id);
+      log(`Incident INC-${alreadyResolved.incident_number} is already resolved. Recovery is idempotent no-op.`);
+      const alertId = storeAlert(db, event, 'processed', alreadyResolved.id);
+
+      return {
+        success: true,
+        recovery: true,
+        idempotent: true,
+        alert_id: alertId,
+        incident_id: alreadyResolved.id,
+        incident_number: alreadyResolved.incident_number,
+        pipeline: pipelineLog,
+      };
+    } else {
+      console.log('[RECOVERY] inbound recovery received with no matching incident');
+      log('No matching open incident found for recovery event');
+      const alertId = storeAlert(db, event, 'processed', null);
+      return { success: true, recovery: true, alert_id: alertId, no_match: true, pipeline: pipelineLog };
+    }
   }
 }
 
@@ -318,20 +387,27 @@ function normalizeEvent(event) {
     if (svc) event.service_id = svc.id;
   }
 
+  const rawStatus = (event.status || '').toLowerCase();
+  const rawEventType = (event.event_type || '').toLowerCase();
+  const isRecovery = rawEventType === 'recovery' || rawEventType === 'resolved' || rawEventType.includes('recover') || rawStatus === 'resolved' || rawStatus === 'recovery';
+
   return {
     event_id: event.event_id || uuidv4(),
     source: event.source || 'unknown',
-    event_type: event.event_type || 'generic',
+    event_type: isRecovery ? 'recovery' : (event.event_type || 'generic'),
+    status: isRecovery ? 'resolved' : (event.status || 'triggered'),
     service: event.service || null,
     service_id: event.service_id || null,
     environment: event.environment || 'production',
-    severity: (event.severity || 'info').toLowerCase(),
+    severity: isRecovery ? 'resolved' : (event.severity || 'info').toLowerCase(),
     metric: event.metric || null,
     value: event.value != null ? String(event.value) : null,
     threshold: event.threshold != null ? String(event.threshold) : null,
     description: event.description || `${event.event_type} from ${event.source}`,
     timestamp: event.timestamp || new Date().toISOString(),
     metadata: event.metadata ? (typeof event.metadata === 'string' ? event.metadata : JSON.stringify(event.metadata)) : null,
+    incident_id: event.incident_id || null,
+    incident_number: event.incident_number || null,
   };
 }
 
