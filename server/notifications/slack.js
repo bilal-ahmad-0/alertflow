@@ -60,7 +60,12 @@ export async function sendSlackNotification(config, template, incident, notifica
   };
 
   if (authHeader) {
-    headers['Authorization'] = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+    const cleanAuth = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+    headers['Authorization'] = cleanAuth;
+    if (cleanAuth.includes('test') || (typeof webhookUrl === 'string' && webhookUrl.includes('fastn'))) {
+      headers['X-fastn-Test-Mode'] = 'true';
+      headers['x-fastn-env'] = 'test';
+    }
   }
 
   // Payload structure supporting both standard Slack webhooks (blocks, text) and Fastn workflows (input)
