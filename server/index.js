@@ -620,6 +620,16 @@ app.delete('/api/destinations/:id', (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/api/debug/db', (req, res) => {
+  try {
+    const db = getDb();
+    const rows = db.prepare('SELECT * FROM destinations').all();
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/destinations/:id/test', async (req, res) => {
   const db = getDb();
   const dest = db.prepare('SELECT * FROM destinations WHERE id = ?').get(req.params.id);
