@@ -110,8 +110,12 @@ let wsListeners = new Set();
 export function connectWebSocket() {
   if (ws) return;
 
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${protocol}://${window.location.hostname}:${window.location.port}/ws`);
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const wsHost = isLocal
+    ? `${window.location.hostname}:${window.location.port}`
+    : 'alertflow-backend-production.up.railway.app';
+  const protocol = isLocal && window.location.protocol !== 'https:' ? 'ws' : 'wss';
+  ws = new WebSocket(`${protocol}://${wsHost}/ws`);
 
   ws.onmessage = (event) => {
     try {
