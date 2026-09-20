@@ -53,7 +53,7 @@ export async function dispatchNotifications(db, incident, event, actions, notifi
       } catch {}
 
       if (dest.type === 'slack') {
-        result = await sendSlackNotification(config, template, incident, notificationType);
+        result = await sendSlackNotification(config, template, incident, event, notificationType);
       } else if (dest.type === 'email') {
         result = await sendEmailNotification(config, template, incident, notificationType);
       }
@@ -121,7 +121,7 @@ async function tryFallback(db, failedDest, allDestinations, template, incident, 
     const config = JSON.parse(fallback.configuration || '{}');
 
     if (fallback.type === 'slack') {
-      result = await sendSlackNotification(config, template, incident, notificationType);
+      result = await sendSlackNotification(config, template, incident, event, notificationType);
     } else if (fallback.type === 'email') {
       result = await sendEmailNotification(config, template, incident, notificationType);
     }

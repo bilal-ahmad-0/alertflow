@@ -1,7 +1,10 @@
 /**
  * Slack notification sender using Incoming Webhooks.
  */
-export async function sendSlackNotification(config, template, incident, notificationType = 'alert') {
+export async function sendSlackNotification(config, template, incident, eventOrType = 'alert', maybeType) {
+  const notificationType = typeof eventOrType === 'string' ? eventOrType : (maybeType || 'alert');
+  const event = typeof eventOrType === 'object' ? eventOrType : null;
+
   let webhookUrl = config.webhook_url;
   if (!webhookUrl) {
     return { success: false, error: 'No Slack webhook URL configured' };
@@ -68,25 +71,52 @@ export async function sendSlackNotification(config, template, incident, notifica
     }
   }
 
+  const service = event?.service || template?.service || incident?.service_name || 'System';
+  const environment = event?.environment || incident?.environment || template?.environment || 'production';
+  const severity = (incident?.severity || event?.severity || template?.severity || 'critical');
+  const priority = incident?.priority || event?.priority || template?.priority || 'P1';
+  const metric = event?.metric || event?.metric_name || 'System Alert';
+  const value = event?.value !== undefined ? String(event.value) : 'triggered';
+  const threshold = event?.threshold !== undefined ? String(event.threshold) : 'threshold_exceeded';
+  const source = event?.source || 'Infrastructure Monitor';
+  const event_type = event?.event_type || 'cpu_threshold';
+  const description = event?.description || template?.description || incident?.title || 'Incident notification';
+  const incidentNumber = incident?.incident_number ? `INC-${incident.incident_number}` : 'INC-NEW';
+  const incidentId = incident?.id || `inc_${Date.now()}`;
+  const eventId = event?.event_id || incidentId;
+
   // Payload structure supporting both standard Slack webhooks (blocks, text) and Fastn workflows (input)
   const body = {
     blocks,
-    text: template?.subject || incident?.title || 'AlertOps Notification',
+    text: template?.subject || incident?.title || `${service} — ${description}`,
     input: {
-      event_id: incident?.id || `alert_${Date.now()}`,
-      incident_id: incident?.id,
-      incident_number: incident?.incident_number ? `INC-${incident.incident_number}` : 'INC-NEW',
-      service: template?.service || incident?.service_name || incident?.service_id || 'System',
-      environment: template?.environment || incident?.environment || 'production',
-      severity: incident?.severity || 'critical',
-      priority: incident?.priority || 'P1',
-      description: template?.description || incident?.title || 'Alert notification',
-      metric: 'alert_notification',
-      value: 'triggered',
-      threshold: 'policy_matched',
-      source: 'AlertOps',
-      event_type: notificationType,
+      value,
+      metric,
+      source,
+      service,
+      event_id: eventId,
+      incident_id: incidentId,
+      incident_number: incidentNumber,
+      severity,
+      threshold,
+      event_type,
+      description,
+      environment,
+      priority,
+      status: incident?.status || 'triggered',
     },
+    value,
+    metric,
+    source,
+    service,
+    event_id: eventId,
+    incident_id: incidentId,
+    incident_number: incidentNumber,
+    severity,
+    threshold,
+    event_type,
+    description,
+    environment,
   };
 
   try {
