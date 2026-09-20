@@ -1,6 +1,8 @@
 {
   "name": "alertops",
   "version": "1.0.0",
+  "description": "AlertFlow - Enterprise Incident Management Platform",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
