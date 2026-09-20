@@ -2,7 +2,7 @@
  * Slack notification sender using Incoming Webhooks.
  */
 export async function sendSlackNotification(config, template, incident, notificationType = 'alert') {
-  const webhookUrl = config.webhook_url;
+  let webhookUrl = config.webhook_url;
   if (!webhookUrl) {
     return { success: false, error: 'No Slack webhook URL configured' };
   }
@@ -10,6 +10,22 @@ export async function sendSlackNotification(config, template, incident, notifica
   // Determine if we should simulate failure (for demo purposes)
   if (config.simulate_failure) {
     return { success: false, error: 'Simulated Slack delivery failure' };
+  }
+
+  let authHeader = config.auth_header || (config.api_key ? `Bearer ${config.api_key}` : null);
+  let extraHeaders = {};
+
+  // Check if user pasted a full curl command into webhook_url
+  if (typeof webhookUrl === 'string' && webhookUrl.trim().startsWith('curl')) {
+    const urlMatch = webhookUrl.match(/https?:\/\/[^\s"'\\]+/);
+    const authMatch = webhookUrl.match(/-H\s+["']Authorization:\s*([^"']+)["']/i);
+    const testModeMatch = webhookUrl.match(/-H\s+["'](X-fastn-Test-Mode:\s*[^"']+)["']/i);
+    const envMatch = webhookUrl.match(/-H\s+["'](x-fastn-env:\s*[^"']+)["']/i);
+
+    if (urlMatch) webhookUrl = urlMatch[0];
+    if (authMatch) authHeader = authMatch[1];
+    if (testModeMatch) extraHeaders['X-fastn-Test-Mode'] = 'true';
+    if (envMatch) extraHeaders['x-fastn-env'] = 'test';
   }
 
   const severityEmoji = {
@@ -36,18 +52,48 @@ export async function sendSlackNotification(config, template, incident, notifica
     blocks = buildAlertSlackBlocks(incident, template, severityEmoji, severityColor);
   }
 
+  const headers = {
+    'Content-Type': 'application/json',
+    ...extraHeaders,
+  };
+
+  if (authHeader) {
+    headers['Authorization'] = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+  }
+
+  // Payload structure supporting both standard Slack webhooks (blocks, text) and Fastn workflows (input)
+  const body = {
+    blocks,
+    text: template?.subject || incident?.title || 'AlertOps Notification',
+    input: {
+      event_id: incident?.id || `alert_${Date.now()}`,
+      incident_id: incident?.id,
+      incident_number: incident?.incident_number ? `INC-${incident.incident_number}` : 'INC-NEW',
+      service: template?.service || incident?.service_name || incident?.service_id || 'System',
+      environment: template?.environment || incident?.environment || 'production',
+      severity: incident?.severity || 'critical',
+      priority: incident?.priority || 'P1',
+      description: template?.description || incident?.title || 'Alert notification',
+      metric: 'alert_notification',
+      value: 'triggered',
+      threshold: 'policy_matched',
+      source: 'AlertOps',
+      event_type: notificationType,
+    },
+  };
+
   try {
     const response = await fetch(webhookUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ blocks, text: template.subject }),
+      headers,
+      body: JSON.stringify(body),
     });
 
     if (response.ok) {
       return { success: true };
     } else {
       const text = await response.text();
-      return { success: false, error: `Slack API error: ${response.status} - ${text}` };
+      return { success: false, error: `Slack/Fastn API error: ${response.status} - ${text}` };
     }
   } catch (err) {
     return { success: false, error: `Slack delivery error: ${err.message}` };
