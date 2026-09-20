@@ -10,8 +10,8 @@ export async function sendSlackNotification(config, template, incident, eventOrT
     || (process.env.FASTN_NOTIFICATION_WORKFLOW_ID ? `https://api.fastn.dev/api/v1/workflows/${process.env.FASTN_NOTIFICATION_WORKFLOW_ID}/execute` : null)
     || config.webhook_url;
 
-  // Ensure outbound notifications use the dedicated outbound Slack workflow instead of the event-ingestion workflow
-  if (!webhookUrl || (typeof webhookUrl === 'string' && webhookUrl.includes('wf_5c3b7b05a7ad'))) {
+  // Always route outbound notifications to the dedicated outbound Fastn Slack workflow
+  if (!webhookUrl || typeof webhookUrl !== 'string' || webhookUrl.includes('wf_5c3b7b05a7ad') || webhookUrl.includes('work...') || !webhookUrl.includes('wf_9a9e07bc911b')) {
     webhookUrl = `https://api.fastn.dev/api/v1/workflows/${defaultWorkflowId}/execute`;
   }
 
