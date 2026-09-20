@@ -5,7 +5,16 @@ export async function sendSlackNotification(config, template, incident, eventOrT
   const notificationType = typeof eventOrType === 'string' ? eventOrType : (maybeType || 'alert');
   const event = typeof eventOrType === 'object' ? eventOrType : null;
 
-  let webhookUrl = config.webhook_url;
+  const defaultWorkflowId = process.env.FASTN_NOTIFICATION_WORKFLOW_ID || 'wf_9a9e07bc911b';
+  let webhookUrl = process.env.FASTN_NOTIFICATION_WEBHOOK_URL
+    || (process.env.FASTN_NOTIFICATION_WORKFLOW_ID ? `https://api.fastn.dev/api/v1/workflows/${process.env.FASTN_NOTIFICATION_WORKFLOW_ID}/execute` : null)
+    || config.webhook_url;
+
+  // Ensure outbound notifications use the dedicated outbound Slack workflow instead of the event-ingestion workflow
+  if (!webhookUrl || (typeof webhookUrl === 'string' && webhookUrl.includes('wf_5c3b7b05a7ad'))) {
+    webhookUrl = `https://api.fastn.dev/api/v1/workflows/${defaultWorkflowId}/execute`;
+  }
+
   if (!webhookUrl) {
     return { success: false, error: 'No Slack webhook URL configured' };
   }
@@ -79,9 +88,10 @@ export async function sendSlackNotification(config, template, incident, eventOrT
   const incidentId = incident?.id || event?.incident_id || `inc_${Date.now()}`;
   const eventId = event?.event_id || (isRecovery ? `rec_${incidentId}` : incidentId);
   const alertId = event?.alert_id || null;
-  const title = incident?.title || template?.subject || `${service} — Incident`;
+  const timestamp = new Date().toISOString();
+  const slackChannel = config.slack_channel || '#incidents';
 
-  let severity, value, threshold, source, event_type, description, status;
+  let severity, value, threshold, source, event_type, description, status, title;
 
   if (isRecovery) {
     event_type = 'recovery';
@@ -92,6 +102,7 @@ export async function sendSlackNotification(config, template, incident, eventOrT
     source = event?.source || 'AlertOps Incident Engine';
     const metric = event?.metric || event?.metric_name || 'System Health';
     description = incident?.title ? `Resolved: ${incident.title}` : (template?.description || 'Incident resolved');
+    title = incident?.title || template?.subject || `${service} — Incident Resolved`;
 
     console.log(`[RECOVERY] incident=${incidentId} event_type=recovery status=resolved`);
 
@@ -100,22 +111,24 @@ export async function sendSlackNotification(config, template, incident, eventOrT
       blocks,
       text: template?.subject || `✅ [RESOLVED] ${incidentNumber}: ${title}`,
       input: {
+        incident_id: incidentNumber,
+        title,
+        service,
+        environment,
+        severity,
+        priority,
+        description,
+        status,
+        timestamp,
+        slack_channel: slackChannel,
         value,
         metric,
         source,
-        service,
         event_id: eventId,
         alert_id: alertId,
-        incident_id: incidentId,
         incident_number: incidentNumber,
-        title,
-        severity,
         threshold,
         event_type,
-        description,
-        environment,
-        priority,
-        status,
       },
       value,
       metric,
@@ -163,28 +176,31 @@ export async function sendSlackNotification(config, template, incident, eventOrT
   const metric = event?.metric || event?.metric_name || 'System Alert';
   event_type = event?.event_type || 'cpu_threshold';
   description = event?.description || template?.description || incident?.title || 'Incident notification';
+  title = incident?.title || template?.subject || `${service} — ${description}`;
 
   // Payload structure supporting both standard Slack webhooks (blocks, text) and Fastn workflows (input)
   const body = {
     blocks,
     text: template?.subject || incident?.title || `${service} — ${description}`,
     input: {
+      incident_id: incidentNumber,
+      title,
+      service,
+      environment,
+      severity,
+      priority,
+      description,
+      status,
+      timestamp,
+      slack_channel: slackChannel,
       value,
       metric,
       source,
-      service,
       event_id: eventId,
       alert_id: alertId,
-      incident_id: incidentId,
       incident_number: incidentNumber,
-      title,
-      severity,
       threshold,
       event_type,
-      description,
-      environment,
-      priority,
-      status,
     },
     value,
     metric,
