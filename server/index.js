@@ -534,7 +534,11 @@ app.get('/api/destinations', (req, res) => {
 
   // Mask sensitive config
   const masked = destinations.map(d => {
-    const config = d.configuration ? JSON.parse(d.configuration) : {};
+    let config = {};
+    try {
+      config = typeof d.configuration === 'string' ? JSON.parse(d.configuration) : (d.configuration || {});
+      if (typeof config === 'string') config = JSON.parse(config);
+    } catch {}
     const safeConfig = { ...config };
     if (safeConfig.webhook_url) safeConfig.webhook_url = maskUrl(safeConfig.webhook_url);
     if (safeConfig.app_password) safeConfig.app_password = '••••••••';
@@ -549,9 +553,10 @@ app.post('/api/destinations', (req, res) => {
   const db = getDb();
   const { type, name, configuration } = req.body;
   const id = uuidv4();
+  const configStr = typeof configuration === 'string' ? configuration : JSON.stringify(configuration || {});
 
   db.prepare(`INSERT INTO destinations (id, organization_id, type, name, status, enabled, configuration) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, ORG_ID, type, name, 'connected', 1, JSON.stringify(configuration));
+    .run(id, ORG_ID, type, name, 'connected', 1, configStr);
 
   addAuditLog(db, 'destination_connected', 'destination', id, name, `${type} destination connected`);
   addAppNotification(db, 'destination_connected', 'Destination Connected', `${name} (${type}) connected successfully`, 'success');
@@ -566,7 +571,10 @@ app.put('/api/destinations/:id', (req, res) => {
   const updates = [];
   const params = [];
   if (name !== undefined) { updates.push('name = ?'); params.push(name); }
-  if (configuration !== undefined) { updates.push('configuration = ?'); params.push(JSON.stringify(configuration)); }
+  if (configuration !== undefined) { 
+    updates.push('configuration = ?'); 
+    params.push(typeof configuration === 'string' ? configuration : JSON.stringify(configuration || {})); 
+  }
   if (enabled !== undefined) { updates.push('enabled = ?'); params.push(enabled ? 1 : 0); }
   params.push(req.params.id);
 
@@ -589,7 +597,11 @@ app.post('/api/destinations/:id/test', async (req, res) => {
   const dest = db.prepare('SELECT * FROM destinations WHERE id = ?').get(req.params.id);
   if (!dest) return res.status(404).json({ error: 'Destination not found' });
 
-  const config = JSON.parse(dest.configuration || '{}');
+  let config = {};
+  try {
+    config = typeof dest.configuration === 'string' ? JSON.parse(dest.configuration) : (dest.configuration || {});
+    if (typeof config === 'string') config = JSON.parse(config);
+  } catch {}
   const template = {
     subject: '🔔 AlertOps Test Notification',
     service: 'AlertOps',

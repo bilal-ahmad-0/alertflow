@@ -46,11 +46,15 @@ export async function dispatchNotifications(db, incident, event, actions, notifi
 
     try {
       let result;
+      let config = {};
+      try {
+        config = typeof dest.configuration === 'string' ? JSON.parse(dest.configuration) : (dest.configuration || {});
+        if (typeof config === 'string') config = JSON.parse(config);
+      } catch {}
+
       if (dest.type === 'slack') {
-        const config = JSON.parse(dest.configuration || '{}');
         result = await sendSlackNotification(config, template, incident, notificationType);
       } else if (dest.type === 'email') {
-        const config = JSON.parse(dest.configuration || '{}');
         result = await sendEmailNotification(config, template, incident, notificationType);
       }
 
