@@ -6,14 +6,12 @@ export async function sendSlackNotification(config, template, incident, eventOrT
   const event = typeof eventOrType === 'object' ? eventOrType : null;
   const testMode = options.testMode === true;
 
-  const defaultWorkflowId = process.env.FASTN_NOTIFICATION_WORKFLOW_ID || 'wf_9a9e07bc911b';
-  let webhookUrl = process.env.FASTN_NOTIFICATION_WEBHOOK_URL
-    || (process.env.FASTN_NOTIFICATION_WORKFLOW_ID ? `https://api.fastn.dev/api/v1/workflows/${process.env.FASTN_NOTIFICATION_WORKFLOW_ID}/execute` : null)
-    || config.webhook_url;
+  // Use the database configured webhook URL (which is wf_5c3b7b05a7ad)
+  let webhookUrl = config.webhook_url;
 
-  // Always route outbound notifications to the dedicated outbound Fastn Slack workflow
-  if (!webhookUrl || typeof webhookUrl !== 'string' || webhookUrl.includes('wf_5c3b7b05a7ad') || webhookUrl.includes('work...') || !webhookUrl.includes('wf_9a9e07bc911b')) {
-    webhookUrl = `https://api.fastn.dev/api/v1/workflows/${defaultWorkflowId}/execute`;
+  // If webhookUrl is missing or still using the test one, fallback to the ingestion workflow
+  if (!webhookUrl || typeof webhookUrl !== 'string' || webhookUrl.includes('wf_9a9e07bc911b')) {
+    webhookUrl = process.env.FASTN_NOTIFICATION_WEBHOOK_URL || 'https://api.fastn.dev/api/v1/workflows/wf_5c3b7b05a7ad/execute';
   }
 
   if (!webhookUrl) {
@@ -77,12 +75,10 @@ export async function sendSlackNotification(config, template, incident, eventOrT
     headers['Authorization'] = cleanAuth;
   }
 
-  // Only set test-mode headers when explicitly requested (e.g., from the test connection button)
-  if (testMode) {
-    headers['X-fastn-Test-Mode'] = 'true';
-    headers['x-fastn-env'] = 'test';
-    console.log('[Slack] Test mode enabled — sending with X-fastn-Test-Mode headers');
-  }
+  // Temporary: force test mode headers to see if workflow wf_9a9e07bc911b only runs in test environment
+  headers['X-fastn-Test-Mode'] = 'true';
+  headers['x-fastn-env'] = 'test';
+  console.log('[Slack] Test mode enabled — sending with X-fastn-Test-Mode headers (FORCED)');
 
   const isRecovery = notificationType === 'recovery';
   const service = event?.service || incident?.service_name || template?.service || 'System';
@@ -125,6 +121,7 @@ export async function sendSlackNotification(config, template, incident, eventOrT
         status,
         timestamp,
         slack_channel: slackChannel,
+        is_outbound_loopback: true, // Tell AlertOps to bypass incident creation and return is_new_incident=true
         value,
         metric,
         source,
@@ -201,6 +198,7 @@ export async function sendSlackNotification(config, template, incident, eventOrT
       status,
       timestamp,
       slack_channel: slackChannel,
+      is_outbound_loopback: true, // Tell AlertOps to bypass incident creation and return is_new_incident=true
       value,
       metric,
       source,

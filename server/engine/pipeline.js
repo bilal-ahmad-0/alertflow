@@ -32,6 +32,16 @@ export async function processEvent(rawEvent) {
     const event = normalizeEvent(validated.event);
     log('Event normalized');
 
+    // Handle outbound loopback from Fastn
+    if (event.is_outbound_loopback === true || event.is_outbound_loopback === 'true') {
+      log('Outbound loopback detected. Bypassing incident creation to trigger Fastn Slack step.');
+      return {
+        success: true,
+        is_new_incident: true, // Force Fastn to execute the Slack step
+        pipeline: pipelineLog,
+      };
+    }
+
     // Step 3: Check duplicate
     const isDuplicate = checkDuplicate(db, event);
     if (isDuplicate.duplicate) {
@@ -408,6 +418,7 @@ function normalizeEvent(event) {
     metadata: event.metadata ? (typeof event.metadata === 'string' ? event.metadata : JSON.stringify(event.metadata)) : null,
     incident_id: event.incident_id || null,
     incident_number: event.incident_number || null,
+    is_outbound_loopback: event.is_outbound_loopback,
   };
 }
 
